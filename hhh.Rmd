@@ -1,0 +1,304 @@
+---
+title: "CaseStudy"
+author: "João Pedro Demambro"
+date: "2025-02-18"
+output:
+  html_document: default
+  pdf_document: default
+---
+## Introdução e objetivos
+
+O Acordo de Livre Comércio (ALC) Mercosul/Israel foi firmado em 18 de dezembro de 2007 e entrou em vigor em 28 de abril de 2010. De acordo com o Siscomex, trata-se do primeiro tratado “dessa modalidade a ser celebrado pelo bloco sul-americano com um país localizado fora de nosso continente”. O texto fundador do ALC define como objetivos: 
+1. eliminar as barreiras ao comércio de bens e facilitar sua circulação entre os territórios das
+Partes;
+2. promover as condições de livre concorrência na área de livre comércio;
+3. aumentar substancialmente as oportunidades de investimento nos territórios das Partes e aumentar a cooperação em áreas que sejam de interesse mútuo das Partes;
+4. criar procedimentos eficazes para a implementação, aplicação e cumprimento deste Acordo e sua administração conjunta; e
+5. estabelecer um marco para aprofundar a cooperação bilateral e multilateral para expandir e ampliar os benefícios do Acordo.
+
+Nesse sentido, o presente estudo tem o intuito de explorar os dados relativos ao comércio entre as partes entre os anos 2021 e 2024. Pretende-se criar uma versão atualizada do informe de relações comerciais do Mercosul com Israel, cuja última publicação disponível no Sistema de Estatísticas de Comércio Exterior do Mercosul (SECEM) refere-se aos anos 2016-2020. 
+
+Dessa maneira, busca-se construir visualizações gráficas para responder às seguintes questões:
+
+- Qual é a balança comercial entre o Mercosul e Israel nos anos 2020-2024?
+- Quais foram os principais produtos exportados a Israel pelo Mercosul?
+- Quais foram os principais produtos importados por Israel ao Mercosul?
+- Qual é a participação dos países do Mercosul nas exportações a Israel?
+- Qual é a participação dos países do Mercosul nas importações vindas de Israel?
+
+Para isso, usaremos as informações disponibilizadas no Sistema de Estatísticas de Comércio Exterior do Mercosul (SECEM) e no ComexStat.
+
+## Carregando os pacotes e importando o arquivo
+
+```{r read e packages}
+mercosul_israel_historico <- read.csv("C:/Users/User/Downloads/NCM.csv")
+library(ggplot2)
+library(dplyr)
+library(scales)  # Para formatar os valores como dólares
+library(tidyr)   
+```
+
+## Explorando os dados
+
+Vamos começar com uma funções básica que sintetiza os dados do arquivo importado
+
+```{r glimpse}
+glimpse(mercosul_israel_historico)
+```
+Percebe-se que a tabela possui 7584 linhas, 8 colunas e se refere aos anos 2021-2024.Para evitar problemas com a coluna "Año" em espanhol, vamos corrigir para "Ano".  
+
+```{r mercosul_israel_corrigido}
+# Renomear a coluna "Año" para "Ano"
+mercosul_israel_corrigido <- mercosul_israel_historico %>%
+  rename(Ano = `Año`)
+glimpse(mercosul_israel_corrigido)
+```
+Agora, faremos uma nova tabela agrupada por ano com informações resumidas dos valores exportações e importações em FOB.
+
+```{r sumario_historico}
+sumario_historico <- mercosul_israel_corrigido %>%
+  group_by(Ano) %>%
+  summarise(soma_importacao = sum(Importaciones..FOB.), soma_exportacao = sum(Exportaciones))
+print(sumario_historico)
+```
+A partir dessa tabela, podemos fazer um gráfico de barras empilhadas para visualizar os dados da balança comercial Mercosul-Israel nos anos acima. 
+
+### Balança Comercial Mercosul-Israel
+
+```{r barras}
+# Transformar os dados para formato longo (necessário para gráfico empilhado)
+sumario_historico_long <- sumario_historico %>%
+  select(Ano, soma_importacao, soma_exportacao) %>%
+  pivot_longer(cols = c(soma_importacao, soma_exportacao), 
+               names_to = "Tipo", 
+               values_to = "Valor") %>%
+  group_by(Ano) %>%
+  mutate(Percentual = Valor / sum(Valor) * 100)  # Calcula a porcentagem dentro de cada ano
+
+# Criar gráfico de colunas empilhadas com porcentagem
+ggplot(sumario_historico_long, aes(x = factor(Ano), y = Valor, fill = Tipo)) +
+  geom_bar(stat = "identity") +  # Usa os valores reais
+  geom_text(aes(label = paste0(round(Percentual, 1), "%")), 
+            position = position_stack(vjust = 0.5),  # Posiciona os rótulos no meio de cada segmento
+            color = "white", size = 4) +  # Define cor branca para contraste e tamanho do texto
+  scale_y_continuous(labels = dollar_format(prefix = "$", big.mark = ",")) +  # Formato em dólares
+  scale_fill_manual(values = c("soma_importacao" = "#1f78b4", "soma_exportacao" = "#33a02c"),
+                    labels = c("soma_importacao" = "Importações", "soma_exportacao" = "Exportações")) +  
+  labs(title = "Balança Comercial Mercosul - Israel (2021-2024)",
+       x = NULL,  # Remove legenda do eixo X
+       y = "Valor (USD)",
+       fill = "Categoria") +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(),  # Remove título do eixo X
+        axis.text.y = element_text(size = 10))  # Diminui tamanho do texto do eixo Y
+```
+
+Com efeito, observa-se que o Mercosul obteve superávit na balança comercial com Israel nos anos de 2022 e 2024, ao passo que enfrentou déficit nos anos de 2021 e 2023, neste último com a maior disparidade no período analisado. 
+
+
+### Produtos mais exportados e importados
+
+Agora, podemos aprofundar esses dados mais gerais e criar um gráfico de pizza que permita a visualização dos cinco produtos mais exportados pelo Mercosul.Faremos isso facetando nos anos 2021, 2022, 2023 e 2024, vendo os maiores valores da coluna "Exportaciones" e retornando o "NCM" com a descrição adicionada do tipo de produto. 
+
+```{r pizza}
+
+# Criar dicionário com descrições dos produtos NCM
+descricao_ncm <- c(
+  "2013000" = "Carne deshuesada, de bovinos, fresca o refrigerada",
+  "10059010" = "Maiz en grano",
+  "23040010" = "Harina y'pellets'de la extracción del aceite de soja",
+  "99999999" = "Sin descripcion",
+  "2023000" = "Carne deshuesada, de bovinos, congelada",
+  "12019000" = "La soja, incluso quebrantadas, excepto para siembra",
+  "27090010" = "Aceites crudos de petróleo"
+)
+
+# Selecionar os principais produtos exportados por ano e calcular porcentagens
+top_exportados <- mercosul_israel_corrigido %>%
+  group_by(Ano) %>%
+  arrange(desc(Exportaciones)) %>%
+  slice_max(order_by = Exportaciones, n = 5) %>%
+  mutate(
+    total_ano = sum(Exportaciones),  # Soma total de exportações por ano
+    pct = (Exportaciones / total_ano) * 100,  # Calcula a porcentagem
+    NCM_desc = coalesce(descricao_ncm[as.character(NCM)], "Descrição não disponível"),  # Evita NA
+    NCM = paste(NCM, "-", NCM_desc)  # Concatena código e descrição
+  ) %>%
+  ungroup()  # Remove agrupamento para evitar problemas no ggplot
+
+# Criar gráfico de pizza (sem rótulos de porcentagem)
+ggplot(top_exportados, aes(x = "", y = Exportaciones, fill = factor(NCM))) +
+  geom_bar(stat = "identity", width = 1, color = "white") +  # Adiciona borda branca para separar fatias
+  coord_polar(theta = "y") +  # Converte para gráfico de pizza
+  facet_wrap(~Ano, scales = "free_y", ncol = 2) +  # Organiza em 2 colunas
+  scale_fill_brewer(palette = "Set2") +  # Cores distintas
+  labs(title = "Principais Produtos Exportados",
+       fill = "NCM (Código - Descrição)") +  
+  theme_void() +  # Remove eixos para aparência de pizza
+  theme(
+    legend.position = "left",  # Coloca a legenda na parte inferior
+    legend.title = element_text(size = 10),  # Tamanho da legenda (título)
+    legend.text = element_text(size = 8),  # Tamanho da legenda (texto)
+    strip.text = element_text(size = 12, face = "bold"),  # Tamanho dos títulos dos anos
+    plot.title = element_text(
+      size = 16,              # Tamanho do título
+      face = "bold",           # Negrito
+      hjust = -6.0,             # Centraliza horizontalmente
+      vjust = 0.2,             # Ajusta a posição vertical
+      margin = margin(b = 20)  # Adiciona margem na parte inferior do título
+    )
+  )  # Melhora a legibilidade do gráfico
+
+```
+
+Vemos, portanto, que a exportação de produtos agropecuários é a pauta mais importante do bloco mercosulino a Israel. Destacam-se a carne bovina e a soja. O aumento das exportações de petróleo a partir de 2022 amplia a diversidade da pauta exportadora, embora o setor primário ainda predomine.
+
+  
+Repetiremos o mesmo procedimento agora analisando as importações. Faremos o gráfico de pizza com os principais produtos importados facetado por ano.
+
+```{r}
+# Selecionar os principais produtos importados por ano e calcular porcentagens
+top_produtos_importados <- mercosul_israel_historico %>%
+  group_by(Año) %>%
+  arrange(desc(Importaciones..FOB.)) %>%
+  slice_max(order_by = Importaciones..FOB., n = 5) %>%  # Top 5 por ano
+  mutate(
+    total_ano = sum(Importaciones..FOB., na.rm = TRUE),  # Total por ano
+    pct = (Importaciones..FOB. / total_ano) * 100,       # Porcentagem
+    NCM_desc = paste(NCM, "-", Descripción)              # Junta código NCM com descrição
+  ) %>%
+  ungroup()
+
+# Criar gráfico de pizza facetado por ano
+ggplot(top_produtos_importados, aes(x = "", y = Importaciones..FOB., fill = factor(NCM_desc))) +
+  geom_bar(stat = "identity", width = 1, color = "white") +  # Borda branca para separar fatias
+  coord_polar(theta = "y") +  # Converte para gráfico de pizza
+  facet_wrap(~ Año, scales = "free_y", ncol = 2) +  # Faceta por ano em 2 colunas
+  scale_fill_brewer(palette = "Set2") +  # Cores distintas
+  labs(title = "Principais Produtos Importados por Ano (2021-2024)",
+       fill = "NCM (Código - Descrição)") +  
+  theme_void() +  # Remove eixos para aparência limpa
+  theme(
+    legend.position = "left",  # Legenda à esquerda
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 6),
+    strip.text = element_text(size = 12, face = "bold"),  # Títulos dos anos
+    plot.title = element_text(
+      size = 13, face = "bold", hjust = 1.5, margin = margin(t = 15, b = 25)  # Título à esquerda e mais baixo
+    ),
+  )    
+```
+
+O gráfico acima permite afirmar que a pauta de importações também é fortemente ligada ao agronegócio, com fertilizantes e defensivos dominando as compras. O ano de 2024 apresenta maior diversidade de produtos, com destaque para aeronaves e uma leve queda na concentração de fertilizantes.
+
+
+### Participação nas exportações e importações
+
+Agora vamos ver os dados de exportação e calcular a participação de cada um nas exportações a Israel.
+
+```{r dadosmercosul}
+ano <- c(2021, 2022, 2023, 2024)
+argentina <- c(366419999.52, 401205883.13, 341151581.18, 435264709.63)
+brasil <- c(597929632.00, 1883531876.00, 661876638.00, 640734177.00)
+uruguai <- c(93471620.00, 90145328.00, 61021233.00, 95387874.00)
+paraguai <- c(157114743.00, 143584752.47, 83788059.61, 127327868.18)
+total <- c(1214935994.52, 2518467839.60, 1147837511.79, 1298714628.81)
+
+```
+
+Vamos criar um dataframe com o total das exportações a Israel de modo a calcular a participação de cada membro.
+
+```{r totalmercosur}
+totalmercosur <- data.frame(ano, argentina, brasil, uruguai, paraguai, total)
+print(totalmercosur)
+
+
+```
+
+
+```{r}
+# Converter para formato longo (long format) e calcular porcentagem
+dados_long <- totalmercosur %>%
+  pivot_longer(cols = argentina:paraguai, names_to = "pais", values_to = "valor") %>%
+  mutate(percentual = (valor / total) * 100) # Calcular a porcentagem
+print(dados_long)
+```
+
+
+Agora vamos ao gráfico:
+
+```{r barras empilhadas na horizontal para exportação}
+# Criar gráfico de barras empilhadas na horizontal com cores personalizadas
+ggplot(dados_long, aes(y = factor(ano), x = percentual, fill = pais)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(percentual, 1), "%")), 
+            position = position_stack(vjust = 0.5), size = 3, color = "white") +
+  scale_fill_manual(values = c("argentina" = "#003366",  # Azul escuro
+                               "brasil" = "#006400",    # Verde
+                               "uruguai" = "#66B3FF",  # Azul claro
+                               "paraguai" = "#FF6666")) +  # Vermelho claro
+  labs(title = "Participação de cada país exportações anuais a Israel (2021-2024)",
+       x = NULL, y = NULL, fill = "País") +
+  scale_x_continuous(labels = scales::percent_format(scale = 1)) + 
+  theme_minimal() +
+  theme(legend.position = "bottom") # Move a legenda para baixo
+```
+
+Em todos os anos analisados observa-se o mesmo padrão sequencial de Brasil, Argentina, Paraguai e Uruguai. O Brasil obteve o pico no ano de 2022, com cerca de 75% das exportações totais do bloco mercosulino. Paraguai e Uruguai mantiveram índices próximos, mas ainda distantes da Argentina. A distribuição das exportações foi mais equilibrada nos anos de 2021 e 2024, quando a dominância brasileira foi mais suavizada.
+
+
+Agora vamos ver os dados de importação e calcular a participação de cada um.
+
+
+```{r}
+ano_imp <- c(2021, 2022, 2023, 2024)
+argentina_imp <- c(147990763.11, 186541840.61, 177503205.49, 98645155.33)
+brasil_imp <- c(1140434812.00, 2118511799.00, 1351954197.00, 878906730.00)
+uruguai_imp <- c(11595393.69, 24938002.86, 36013880.64, 20482251.93)
+paraguai_imp <- c(9998853.00, 24872404.42, 45573768.08, 38092619.72)
+imp_ano <- c(147990763.11 + 1140434812.00 + 11595393.69 + 9998853.00, 186541840.61 + 2118511799.00 + 24938002.86 + 24872404.42, 177503205.49 + 1351954197.00 + 36013880.64 + 45573768.08, 98645155.33 + 878906730.00 + 20482251.93 + 38092619.72)
+total_imp <- data.frame(ano_imp, argentina_imp, brasil_imp, uruguai_imp, paraguai_imp, imp_ano)
+print(total_imp)
+```
+
+```{r}
+# Converter a tabela para formato longo (long format)
+dados_imp_long <- total_imp %>%
+  pivot_longer(cols = argentina_imp:paraguai_imp, names_to = "pais", values_to = "valor") %>%
+  mutate(percentual = (valor / imp_ano) * 100)  # Calcular a porcentagem de cada país nas importações
+print(dados_imp_long)
+```
+
+Vamos ao gráfico!
+
+```{r barras empilhadas na horizontal para importação}
+
+
+# Criar gráfico de barras empilhadas na horizontal para importações com rótulos
+ggplot(dados_imp_long, aes(y = factor(ano_imp), x = percentual, fill = pais)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(percentual, 1), "%")), 
+            position = position_stack(vjust = 0.5), size = 3, color = "white") + 
+  scale_fill_manual(values = c("argentina_imp" = "#003366",  # Azul escuro
+                               "brasil_imp" = "#006400",    # Verde
+                               "uruguai_imp" = "#66B3FF",  # Azul claro
+                               "paraguai_imp" = "#FF6666")) +  # Vermelho claro
+  labs(title = "Participação de cada país nas importações anuais (2021-2024)",
+       x = "Percentual do total (%)", y = NULL, fill = "País") +
+  scale_x_continuous(labels = scales::percent_format(scale = 1)) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+
+```
+
+Ao contrário do gráfico de exportações, aqui se observa a dominância total do Brasil nas importações vindas de Israel em todos os anos analisados. Essa participação brasileira nas importações tem aumentado consistentemente, passando de 87,1% em 2021 para 94,8% em 2024. Argentina, Paraguai e Uruguai têm participações significativamente menores. A Argentina, por exemplo, tem uma participação que varia entre 9% e 11,3%, enquanto Paraguai e Uruguai têm participações ainda menores, abaixo de 10%.
+
+## Conclusões
+- A balança comercial do Mercosul foi equilibrada, com superávits nos anos de 2022 e 2024 e déficits nos anos de 2021 e 2023. Em 2023, houve a maior disparidade com uma diferença de 16,8% a favor de Israel.
+
+- Os principais produtos exportados pelo Mercosul são do ramo agropecuário. Carne bovina e soja são os produtos dominantes desse setor. Por outro lado, observou-se um aumento das exportações de petróleo a partir de 2022, o que pode indicar uma diversificação da pauta.
+
+- Quanto à participação nas exportações, o padrão consiste na sequência de Brasil, Argentina, Paraguai e Uruguai. Nos anos de 2021 e 2024, percebe-se um certo equilíbrio na distribuição, de modo que a primazia brasileira, ainda que existente, foi mais relativizada.
+
+- Os principais produtos importados pelo bloco são aqueles associados ao agronegócio, sobretudo fertilizantes e defensivos. O ano de 2024 se destacou com a presença de aeronaves na lista. No entanto, dada a ausência de produção nacional dos produtos agrícolas referidos, é provável que eles continuem a dominar a pauta de importações do bloco mercosulino em relação a Israel.
